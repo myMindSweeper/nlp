@@ -1,5 +1,3 @@
-import messengerScraper
-import datetime
 import json, csv
 import re
 
@@ -130,7 +128,3 @@ def writeDataToFile(convos, file):
 			curr = data[i]
 			writer.writerow([i // 10, curr['time'], curr['score'], curr['user'], 
 				curr['keywords']])
-
-if __name__ == "__main__":
-	convos = messengerScraper.scrapeAll('data')
-	writeDataToFile(convos, 'data/data.csv')
