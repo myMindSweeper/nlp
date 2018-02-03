@@ -123,7 +123,7 @@ def preprocess(convo):
 # calculates risk scores and writes them to csv file along with associated meta-data
 def writeDataToFile(convos, file):
 	loads = [preprocess(load) for load in json.loads(convos)]
-	data = analyzeClumps(makeClumps(loads))
+	data = sorted(analyzeClumps(makeClumps(loads)), key = lambda x: x['time'])
 	with open(file, 'w') as f:
 		writer = csv.writer(f)
 		for i in range(len(data)):
