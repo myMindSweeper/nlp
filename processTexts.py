@@ -1,15 +1,28 @@
 import messengerScraper
 import datetime
-import json
-import matplotlib.pyplot as plt
+import json, csv
+import re
 
 from watson_developer_cloud import NaturalLanguageUnderstandingV1
 from watson_developer_cloud.natural_language_understanding_v1 \
-  import Features, EmotionOptions, SentimentOptions, KeywordsOptions
+	import Features, EmotionOptions, SentimentOptions, KeywordsOptions
 
 watsonCreds = 'ibm-key.json'
 clumpMins = 20
 endPunctuation = set(['!', ',', '.', ';', '?'])
+regexAbb = {
+	'aka': 'also known as',
+	'btw': 'by the way',
+	'bc': 'because',
+	'fyi': 'for your information',
+	'idk':"I don't know",
+	'imo': 'in my opinion',
+	'omg': 'oh my gosh',
+	'omfg': 'oh my gosh',
+	'tba': 'to be announced',
+	'tbd': 'to be decided',
+	'thx':'thanks',
+	'wtf':'what the heck'}
 
 # get instance of Watson NaturalLanguageUnderstanding
 def initWatson():
@@ -72,7 +85,7 @@ def analyzeClumps(clumps):
 			features = Features(
 				keywords = KeywordsOptions()),
 			language = 'en')
-		score = riskScore(userResp)
+		score = riskScore(userClump, userResp)
 		keywords = relevantKeywords(allResp)
 		data.append({
 			'time': allClump['time'], 
@@ -82,35 +95,45 @@ def analyzeClumps(clumps):
 	return data
 
 # calculates a risk score for a message
-def riskScore(response):
+def riskScore(clump, response):
 	emotions = response['emotion']['document']['emotion']
-	sentiment = response['sentiment']['document']['score']
-	return (emotions['sadness'] + emotions['fear'] + emotions['anger'] - emotions['joy']) * sentiment
+	sentiment = response['sentiment']['document']
+	if sentiment['label'] == 'positive':
+		return 3.5 + emotions['anger'] - emotions['sadness'] + 1.5 * emotions['joy']
+	elif sentiment['label'] == 'negative':
+		return 5.0 - 4.0 * (emotions['anger'] + emotions['sadness'])
+	else:
+		return 4.0
+	return emotions['sadness'] + emotions['fear'] + emotions['anger'] - emotions['joy']
 
 # extracts keywords and their relevance from a keyword response
 def relevantKeywords(response):
 	return [{'term': term['text'], 'relevance': term['relevance']} \
-		    for term in response['keywords']]
+			for term in response['keywords']]
 
-# preprocess conversations to normalize text
-def preprocess(convos):
-	return convos
+# preprocess conversation to normalize text
+def preprocess(convo):
+	return {
+		'time': convo['time'],
+		'user': convo['user'],
+		'text': re.sub(
+			r'\S+', 
+			lambda g: regexAbb[g.group(0).lower()] if g.group(0) in regexAbb else g.group(0), 
+			convo['text'])
+	}
 
-# calculates risk scores and returns them along with associated meta-data
-def calculateScoresWithMeta(name, convos, ordered):
+# calculates risk scores and writes them to csv file along with associated meta-data
+def writeDataToFile(name, convos, ordered, file):
 	if not ordered:
 		convos.sort(key = lambda dic: dic['time'])
-	convos = preprocess(convos)
-	return analyzeClumps(makeClumps(name, convos))
+	convos = [[preprocess(msg) for msg in convo] for convo in convos]
+	data = analyzeClumps(makeClumps(name, convos))
+	with open(file, 'w') as f:
+		writer = csv.writer(f)
+		for i in range(len(data)):
+			curr = data[i]
+			writer.writerow([i // 10, curr['time'], curr['score'], curr['user'], curr['keywords']])
 
 if __name__ == "__main__":
 	name, convos = messengerScraper.scrapeAll('data')
-	data = calculateScoresWithMeta(name, convos, True)
-	scores = []
-	for clump in data:
-		print(clump['score'])
-		print(clump['keywords'])
-		print()
-		scores.append(clump['score'])
-	plt.plot(scores)
-	plt.show()
+	writeDataToFile(name, convos, True, 'data/data.csv')
