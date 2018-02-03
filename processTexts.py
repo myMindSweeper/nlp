@@ -1,10 +1,11 @@
 import messengerScraper
 import datetime
 import json
+import matplotlib.pyplot as plt
 
 from watson_developer_cloud import NaturalLanguageUnderstandingV1
 from watson_developer_cloud.natural_language_understanding_v1 \
-  import Features, EntitiesOptions, KeywordsOptions
+  import Features, EmotionOptions, SentimentOptions
 
 watsonCreds = 'ibm-key.json'
 clumpMins = 20
@@ -48,11 +49,27 @@ def clumpMsgs(msgs):
 			clump['text'] += ' '
 	return clump
 
-def sentimentAnalysis(msg):
-	pass
+def analyzeClumps(clumps):
+	natural_language_understanding = initWatson()
+	scores = []
+	for allClump, userClump in clumps:
+		response = natural_language_understanding.analyze(
+			text = userClump['text'],
+			features = Features(
+				sentiment = SentimentOptions(), 
+				emotion = EmotionOptions()),
+			language='en')
+		score = riskScore(response)
+		scores.append(score)
+	return scores
+
+def riskScore(response):
+	emotions = response['emotion']['document']['emotion']
+	sentiment = response['sentiment']['document']['score']
+	return (emotions['sadness'] + emotions['fear'] + emotions['anger'] - emotions['joy']) * sentiment
 
 if __name__ == "__main__":
 	name, convos = messengerScraper.scrapeAll('data')
-	clumps = makeClumps(name, convos)
-	for clump in clumps:
-		print(clump[1])
+	scores = analyzeClumps(makeClumps(name, convos))
+	plt.plot(scores)
+	plt.show()
