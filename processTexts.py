@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 from watson_developer_cloud import NaturalLanguageUnderstandingV1
 from watson_developer_cloud.natural_language_understanding_v1 \
-  import Features, EmotionOptions, SentimentOptions
+  import Features, EmotionOptions, SentimentOptions, KeywordsOptions
 
 watsonCreds = 'ibm-key.json'
 clumpMins = 20
@@ -51,25 +51,40 @@ def clumpMsgs(msgs):
 
 def analyzeClumps(clumps):
 	natural_language_understanding = initWatson()
-	scores = []
+	data = []
 	for allClump, userClump in clumps:
-		response = natural_language_understanding.analyze(
+		userResp = natural_language_understanding.analyze(
 			text = userClump['text'],
 			features = Features(
 				sentiment = SentimentOptions(), 
 				emotion = EmotionOptions()),
 			language='en')
-		score = riskScore(response)
-		scores.append(score)
-	return scores
+		allResp = natural_language_understanding.analyze(
+			text = allClump['text'],
+			features = Features(
+				keywords = KeywordsOptions()),
+			language = 'en')
+		score = riskScore(userResp)
+		keywords = relevantKeywords(allResp)
+		data.append({
+			'time': allClump['time'], 
+			'user': allClump['user'], 
+			'score': score, 
+			'keywords': keywords})
+	return data
 
 def riskScore(response):
 	emotions = response['emotion']['document']['emotion']
 	sentiment = response['sentiment']['document']['score']
 	return (emotions['sadness'] + emotions['fear'] + emotions['anger'] - emotions['joy']) * sentiment
 
+def relevantKeywords(response):
+	return [{'term': term['text'], 'relevance': term['relevance']} for term in response['keywords']]
+
 if __name__ == "__main__":
 	name, convos = messengerScraper.scrapeAll('data')
-	scores = analyzeClumps(makeClumps(name, convos))
-	plt.plot(scores)
-	plt.show()
+	data = analyzeClumps(makeClumps(name, convos))
+	for clump in data:
+		print(clump['score'])
+		print(clump['keywords'])
+		print()
