@@ -34,39 +34,39 @@ def initWatson():
 		version = '2017-02-27')
 
 # combine conversations into larger clumps for watson processing
-def makeClumps(name, convos):
+def makeClumps(convos):
 	clumped = []
 	for convo in convos:
 		allMsgs = []
 		userMsgs = []
-		clumpEndTime = convo[0]['time'] + datetime.timedelta(minutes=clumpMins)
-		for msg in convo:
-			if msg['time'] > clumpEndTime:
+		clumpEndTime = convo['msg_list'][0]['date'] + clumpMins * 60
+		for msg in convo['msg_list']:
+			if msg['date'] > clumpEndTime:
 				if len(userMsgs) > 0:
-					clumped.append((clumpMsgs(name, allMsgs), clumpMsgs(name, userMsgs)))
+					clumped.append((
+						concatToClump(convo['person'], allMsgs), 
+						concatToClump(convo['person'], userMsgs)))
 				allMsgs = []
 				userMsgs = []
-				clumpEndTime = msg['time'] + datetime.timedelta(minutes=clumpMins)
+				clumpEndTime = msg['date'] + clumpMins * 60
 			allMsgs.append(msg)
-			if msg['user'] == name:
+			if msg['user_speaking']:
 				userMsgs.append(msg)
 		if len(userMsgs) > 0:
-			clumped.append((clumpMsgs(name, allMsgs), clumpMsgs(name, userMsgs)))
+			clumped.append((
+				concatToClump(convo['person'], allMsgs), 
+				concatToClump(convo['person'], userMsgs)))
 	return clumped
 
 # concatenate msgs together into one with correct user attribution
-def clumpMsgs(name, msgs):
-	foundUser = False
-	clump = {'time': msgs[0]['time'], 'user': name, 'text': ''}
+def concatToClump(user, msgs):
+	clump = {'time': msgs[0]['date'], 'user': user, 'text': ''}
 	for msg in msgs:
-		clump['text'] += msg['text']
-		if msg['text'][-1:] not in endPunctuation:
+		clump['text'] += msg['body']
+		if msg['body'][-1:] not in endPunctuation:
 			clump['text'] += '. '
 		else:
 			clump['text'] += ' '
-		if not foundUser and msg['user'] != name:
-			clump['user'] = msg['user']
-			foundUser = True
 	return clump
 
 # returns information for stats package given clumps to analyze with Watson
@@ -113,27 +113,24 @@ def relevantKeywords(response):
 
 # preprocess conversation to normalize text
 def preprocess(convo):
-	return {
-		'time': convo['time'],
-		'user': convo['user'],
-		'text': re.sub(
-			r'\S+', 
-			lambda g: regexAbb[g.group(0).lower()] if g.group(0) in regexAbb else g.group(0), 
-			convo['text'])
-	}
+	for i in range(len(convo['msg_list'])):
+		target = convo['msg_list'][i]
+		target['body'] = re.sub(r'\S+', 
+				lambda g: regexAbb[g.group(0).lower()] if g.group(0) in regexAbb else g.group(0), 
+				target['body'])
+	return convo
 
 # calculates risk scores and writes them to csv file along with associated meta-data
-def writeDataToFile(name, convos, ordered, file):
-	if not ordered:
-		convos.sort(key = lambda dic: dic['time'])
-	convos = [[preprocess(msg) for msg in convo] for convo in convos]
-	data = analyzeClumps(makeClumps(name, convos))
+def writeDataToFile(convos, file):
+	loads = [preprocess(load) for load in json.loads(convos)]
+	data = analyzeClumps(makeClumps(loads))
 	with open(file, 'w') as f:
 		writer = csv.writer(f)
 		for i in range(len(data)):
 			curr = data[i]
-			writer.writerow([i // 10, curr['time'], curr['score'], curr['user'], curr['keywords']])
+			writer.writerow([i // 10, curr['time'], curr['score'], curr['user'], 
+				curr['keywords']])
 
 if __name__ == "__main__":
-	name, convos = messengerScraper.scrapeAll('data')
-	writeDataToFile(name, convos, True, 'data/data.csv')
+	convos = messengerScraper.scrapeAll('data')
+	writeDataToFile(convos, 'data/data.csv')
