@@ -1,3 +1,4 @@
+import messengerScraper
 import json, csv
 import re
 
@@ -20,7 +21,18 @@ regexAbb = {
 	'tba': 'to be announced',
 	'tbd': 'to be decided',
 	'thx':'thanks',
-	'wtf':'what the heck'}
+	'wtf':'what the heck',
+	'lol': 'haha',
+	'ppl': 'people',
+	'brb': 'be right back' }
+
+# get stopwords from file
+def loadStopWords(file):
+	stopwords = set()
+	with open(file) as f:
+		for line in f:
+			stopwords.add(line.lower().rstrip())
+	return stopwords
 
 # get instance of Watson NaturalLanguageUnderstanding
 def initWatson():
@@ -68,7 +80,7 @@ def concatToClump(user, msgs):
 	return clump
 
 # returns information for stats package given clumps to analyze with Watson
-def analyzeClumps(clumps):
+def analyzeClumps(clumps, stopWords):
 	natural_language_understanding = initWatson()
 	data = []
 	for allClump, userClump in clumps:
@@ -84,7 +96,7 @@ def analyzeClumps(clumps):
 				keywords = KeywordsOptions()),
 			language = 'en')
 		score = riskScore(userClump, userResp)
-		keywords = relevantKeywords(allResp)
+		keywords = getKeywords(allResp, stopWords)
 		data.append({
 			'time': allClump['time'], 
 			'user': allClump['user'], 
@@ -104,10 +116,16 @@ def riskScore(clump, response):
 		return 4.0
 	return emotions['sadness'] + emotions['fear'] + emotions['anger'] - emotions['joy']
 
-# extracts keywords and their relevance from a keyword response
-def relevantKeywords(response):
-	return [{'term': term['text'], 'relevance': term['relevance']} \
+# extracts relevant keywords from the text
+def getKeywords(response, stopWords):
+	words = [{'term': term['text'], 'relevance': term['relevance']} \
 			for term in response['keywords']]
+	keywords = []
+	for word in words:
+		text = word['term'].lower()
+		if text not in stopWords:
+			keywords.append({'term': text, 'relevance': word['relevance']})
+	return keywords
 
 # preprocess conversation to normalize text
 def preprocess(convo):
@@ -120,11 +138,15 @@ def preprocess(convo):
 
 # calculates risk scores and writes them to csv file along with associated meta-data
 def writeDataToFile(convos, file):
+	stopWords = loadStopWords('stopwords.txt')
 	loads = [preprocess(load) for load in json.loads(convos)]
-	data = sorted(analyzeClumps(makeClumps(loads)), key = lambda x: x['time'])
+	data = sorted(analyzeClumps(makeClumps(loads), stopWords), key = lambda x: x['time'])
 	with open(file, 'w') as f:
 		writer = csv.writer(f)
 		for i in range(len(data)):
 			curr = data[i]
-			writer.writerow([i // 10, curr['time'], curr['score'], curr['user'], 
-				curr['keywords']])
+			writer.writerow([i // 10, curr['time'], curr['score'], curr['user'], curr['keywords']])
+
+if __name__ == "__main__":
+	convos = messengerScraper.scrapeAll('data')
+	writeDataToFile(convos, 'data.csv')
